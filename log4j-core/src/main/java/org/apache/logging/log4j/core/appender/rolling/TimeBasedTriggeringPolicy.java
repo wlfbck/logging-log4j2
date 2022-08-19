@@ -16,6 +16,7 @@
  */
 package org.apache.logging.log4j.core.appender.rolling;
 
+import java.util.Calendar;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
@@ -87,6 +88,9 @@ public final class TimeBasedTriggeringPolicy extends AbstractTriggeringPolicy {
 
     private RollingFileManager manager;
 
+    //TODO needed for now achieve similar behavior
+    private long nextFileTime = 0;
+
     private TimeBasedTriggeringPolicy(final int interval, final boolean modulate, final long maxRandomDelayMillis) {
         this.interval = interval;
         this.modulate = modulate;
@@ -113,12 +117,10 @@ public final class TimeBasedTriggeringPolicy extends AbstractTriggeringPolicy {
             current = System.currentTimeMillis();
         }
 
-        // LOG4J2-531: call getNextTime twice to force initialization of both prevFileTime and nextFileTime
-        aManager.getPatternProcessor().getNextTime(current, interval, modulate);
-        aManager.getPatternProcessor().setTimeBased(true);
-
         nextRolloverMillis = ThreadLocalRandom.current().nextLong(0, 1 + maxRandomDelayMillis)
-                + aManager.getPatternProcessor().getNextTime(current, interval, modulate);
+                + getNextTime(current, interval, modulate, aManager.getPatternProcessor().getFrequency());
+        // previously two calls were done, because the intention was always to set the calculated time into prevFileTime
+        aManager.getPatternProcessor().setPrevFileTime(getNextTime(current, interval, modulate, aManager.getPatternProcessor().getFrequency()));
     }
 
     /**
@@ -130,12 +132,100 @@ public final class TimeBasedTriggeringPolicy extends AbstractTriggeringPolicy {
     public boolean isTriggeringEvent(final LogEvent event) {
         final long nowMillis = event.getTimeMillis();
         if (nowMillis >= nextRolloverMillis) {
+            manager.getPatternProcessor().setPrevFileTime(nextFileTime);
             nextRolloverMillis = ThreadLocalRandom.current().nextLong(0, 1 + maxRandomDelayMillis)
-                    + manager.getPatternProcessor().getNextTime(nowMillis, interval, modulate);
+                    + getNextTime(nowMillis, interval, modulate, manager.getPatternProcessor().getFrequency());
             manager.getPatternProcessor().setCurrentFileTime(System.currentTimeMillis());
             return true;
         }
         return false;
+    }
+
+    /**
+     * Returns the next potential rollover time.
+     * @param currentMillis The current time.
+     * @param increment The increment to the next time.
+     * @param modulus If true the time will be rounded to occur on a boundary aligned with the increment.
+     * @return the next potential rollover time and the timestamp for the target file.
+     */
+    private long getNextTime(final long currentMillis, final int increment, final boolean modulus, final RolloverFrequency frequency) {
+        if (frequency == null) {
+            throw new IllegalStateException("Pattern does not contain a date");
+        }
+        long nextTime;
+        final Calendar currentCal = Calendar.getInstance();
+        currentCal.setTimeInMillis(currentMillis);
+        final Calendar cal = Calendar.getInstance();
+        currentCal.setMinimalDaysInFirstWeek(7);
+        cal.setMinimalDaysInFirstWeek(7);
+        cal.set(currentCal.get(Calendar.YEAR), 0, 1, 0, 0, 0);
+        cal.set(Calendar.MILLISECOND, 0);
+        if (frequency == RolloverFrequency.ANNUALLY) {
+            increment(cal, Calendar.YEAR, increment, modulus);
+            nextTime = cal.getTimeInMillis();
+            cal.add(Calendar.YEAR, -1);
+            return nextTime;
+        }
+        cal.set(Calendar.MONTH, currentCal.get(Calendar.MONTH));
+        if (frequency == RolloverFrequency.MONTHLY) {
+            increment(cal, Calendar.MONTH, increment, modulus);
+            nextTime = cal.getTimeInMillis();
+            cal.add(Calendar.MONTH, -1);
+            nextFileTime = cal.getTimeInMillis();
+            return nextTime;
+        }
+        if (frequency == RolloverFrequency.WEEKLY) {
+            cal.set(Calendar.WEEK_OF_YEAR, currentCal.get(Calendar.WEEK_OF_YEAR));
+            increment(cal, Calendar.WEEK_OF_YEAR, increment, modulus);
+            cal.set(Calendar.DAY_OF_WEEK, currentCal.getFirstDayOfWeek());
+            nextTime = cal.getTimeInMillis();
+            cal.add(Calendar.WEEK_OF_YEAR, -1);
+            nextFileTime = cal.getTimeInMillis();
+            return nextTime;
+        }
+        cal.set(Calendar.DAY_OF_YEAR, currentCal.get(Calendar.DAY_OF_YEAR));
+        if (frequency == RolloverFrequency.DAILY) {
+            increment(cal, Calendar.DAY_OF_YEAR, increment, modulus);
+            nextTime = cal.getTimeInMillis();
+            cal.add(Calendar.DAY_OF_YEAR, -1);
+            nextFileTime = cal.getTimeInMillis();
+            return nextTime;
+        }
+        cal.set(Calendar.HOUR_OF_DAY, currentCal.get(Calendar.HOUR_OF_DAY));
+        if (frequency == RolloverFrequency.HOURLY) {
+            increment(cal, Calendar.HOUR_OF_DAY, increment, modulus);
+            nextTime = cal.getTimeInMillis();
+            cal.add(Calendar.HOUR_OF_DAY, -1);
+            nextFileTime = cal.getTimeInMillis();
+            return nextTime;
+        }
+        cal.set(Calendar.MINUTE, currentCal.get(Calendar.MINUTE));
+        if (frequency == RolloverFrequency.EVERY_MINUTE) {
+            increment(cal, Calendar.MINUTE, increment, modulus);
+            nextTime = cal.getTimeInMillis();
+            cal.add(Calendar.MINUTE, -1);
+            nextFileTime = cal.getTimeInMillis();
+            return nextTime;
+        }
+        cal.set(Calendar.SECOND, currentCal.get(Calendar.SECOND));
+        if (frequency == RolloverFrequency.EVERY_SECOND) {
+            increment(cal, Calendar.SECOND, increment, modulus);
+            nextTime = cal.getTimeInMillis();
+            cal.add(Calendar.SECOND, -1);
+            nextFileTime = cal.getTimeInMillis();
+            return nextTime;
+        }
+        cal.set(Calendar.MILLISECOND, currentCal.get(Calendar.MILLISECOND));
+        increment(cal, Calendar.MILLISECOND, increment, modulus);
+        nextTime = cal.getTimeInMillis();
+        cal.add(Calendar.MILLISECOND, -1);
+        nextFileTime = cal.getTimeInMillis();
+        return nextTime;
+    }
+
+    private void increment(final Calendar cal, final int type, final int increment, final boolean modulate) {
+        final int interval =  modulate ? increment - (cal.get(type) % increment) : increment;
+        cal.add(type, interval);
     }
 
     /**

@@ -54,11 +54,11 @@ public class PatternProcessor {
     private final FormattingInfo[] patternFields;
     private final FileExtension fileExtension;
 
+    //TODO: I would suggest renaming this to "startTimeOfLastFile". Seems more fitting.
     private long prevFileTime = 0;
-    private long nextFileTime = 0;
-    private long currentFileTime = 0;
 
-    private boolean isTimeBased = false;
+    //TODO: I would suggest renaming this to "endTimeOfLastFile". Seems more fitting.
+    private long currentFileTime = 0;
 
     private RolloverFrequency frequency = null;
 
@@ -105,7 +105,6 @@ public class PatternProcessor {
     public PatternProcessor(final String pattern, final PatternProcessor copy) {
         this(pattern);
         this.prevFileTime = copy.prevFileTime;
-        this.nextFileTime = copy.nextFileTime;
         this.currentFileTime = copy.currentFileTime;
     }
 
@@ -115,10 +114,6 @@ public class PatternProcessor {
 
     public ArrayPatternConverter[] getPatternConverters() {
         return patternConverters;
-    }
-
-    public void setTimeBased(boolean isTimeBased) {
-        this.isTimeBased = isTimeBased;
     }
 
     public long getCurrentFileTime() {
@@ -142,117 +137,8 @@ public class PatternProcessor {
         return fileExtension;
     }
 
-    /**
-     * Returns the next potential rollover time.
-     * @param currentMillis The current time.
-     * @param increment The increment to the next time.
-     * @param modulus If true the time will be rounded to occur on a boundary aligned with the increment.
-     * @return the next potential rollover time and the timestamp for the target file.
-     */
-    public long getNextTime(final long currentMillis, final int increment, final boolean modulus) {
-        //
-        // https://issues.apache.org/jira/browse/LOG4J2-1232
-        // Call setMinimalDaysInFirstWeek(7);
-        //
-        prevFileTime = nextFileTime;
-        long nextTime;
-
-        if (frequency == null) {
-            throw new IllegalStateException("Pattern does not contain a date");
-        }
-        final Calendar currentCal = Calendar.getInstance();
-        currentCal.setTimeInMillis(currentMillis);
-        final Calendar cal = Calendar.getInstance();
-        currentCal.setMinimalDaysInFirstWeek(7);
-        cal.setMinimalDaysInFirstWeek(7);
-        cal.set(currentCal.get(Calendar.YEAR), 0, 1, 0, 0, 0);
-        cal.set(Calendar.MILLISECOND, 0);
-        if (frequency == RolloverFrequency.ANNUALLY) {
-            increment(cal, Calendar.YEAR, increment, modulus);
-            nextTime = cal.getTimeInMillis();
-            cal.add(Calendar.YEAR, -1);
-            nextFileTime = cal.getTimeInMillis();
-            return debugGetNextTime(nextTime);
-        }
-        cal.set(Calendar.MONTH, currentCal.get(Calendar.MONTH));
-        if (frequency == RolloverFrequency.MONTHLY) {
-            increment(cal, Calendar.MONTH, increment, modulus);
-            nextTime = cal.getTimeInMillis();
-            cal.add(Calendar.MONTH, -1);
-            nextFileTime = cal.getTimeInMillis();
-            return debugGetNextTime(nextTime);
-        }
-        if (frequency == RolloverFrequency.WEEKLY) {
-            cal.set(Calendar.WEEK_OF_YEAR, currentCal.get(Calendar.WEEK_OF_YEAR));
-            increment(cal, Calendar.WEEK_OF_YEAR, increment, modulus);
-            cal.set(Calendar.DAY_OF_WEEK, currentCal.getFirstDayOfWeek());
-            nextTime = cal.getTimeInMillis();
-            cal.add(Calendar.WEEK_OF_YEAR, -1);
-            nextFileTime = cal.getTimeInMillis();
-            return debugGetNextTime(nextTime);
-        }
-        cal.set(Calendar.DAY_OF_YEAR, currentCal.get(Calendar.DAY_OF_YEAR));
-        if (frequency == RolloverFrequency.DAILY) {
-            increment(cal, Calendar.DAY_OF_YEAR, increment, modulus);
-            nextTime = cal.getTimeInMillis();
-            cal.add(Calendar.DAY_OF_YEAR, -1);
-            nextFileTime = cal.getTimeInMillis();
-            return debugGetNextTime(nextTime);
-        }
-        cal.set(Calendar.HOUR_OF_DAY, currentCal.get(Calendar.HOUR_OF_DAY));
-        if (frequency == RolloverFrequency.HOURLY) {
-            increment(cal, Calendar.HOUR_OF_DAY, increment, modulus);
-            nextTime = cal.getTimeInMillis();
-            cal.add(Calendar.HOUR_OF_DAY, -1);
-            nextFileTime = cal.getTimeInMillis();
-            return debugGetNextTime(nextTime);
-        }
-        cal.set(Calendar.MINUTE, currentCal.get(Calendar.MINUTE));
-        if (frequency == RolloverFrequency.EVERY_MINUTE) {
-            increment(cal, Calendar.MINUTE, increment, modulus);
-            nextTime = cal.getTimeInMillis();
-            cal.add(Calendar.MINUTE, -1);
-            nextFileTime = cal.getTimeInMillis();
-            return debugGetNextTime(nextTime);
-        }
-        cal.set(Calendar.SECOND, currentCal.get(Calendar.SECOND));
-        if (frequency == RolloverFrequency.EVERY_SECOND) {
-            increment(cal, Calendar.SECOND, increment, modulus);
-            nextTime = cal.getTimeInMillis();
-            cal.add(Calendar.SECOND, -1);
-            nextFileTime = cal.getTimeInMillis();
-            return debugGetNextTime(nextTime);
-        }
-        cal.set(Calendar.MILLISECOND, currentCal.get(Calendar.MILLISECOND));
-        increment(cal, Calendar.MILLISECOND, increment, modulus);
-        nextTime = cal.getTimeInMillis();
-        cal.add(Calendar.MILLISECOND, -1);
-        nextFileTime = cal.getTimeInMillis();
-        return debugGetNextTime(nextTime);
-    }
-
-    public void updateTime() {
-    	if (nextFileTime != 0 || !isTimeBased) {
-			prevFileTime = nextFileTime;
-            currentFileTime = 0;
-		}
-    }
-
-    private long debugGetNextTime(final long nextTime) {
-        if (LOGGER.isTraceEnabled()) {
-            LOGGER.trace("PatternProcessor.getNextTime returning {}, nextFileTime={}, prevFileTime={}, current={}, freq={}", //
-                    format(nextTime), format(nextFileTime), format(prevFileTime), format(System.currentTimeMillis()), frequency);
-        }
-        return nextTime;
-    }
-
     private String format(final long time) {
         return new SimpleDateFormat("yyyy/MM/dd-HH:mm:ss.SSS").format(new Date(time));
-    }
-
-    private void increment(final Calendar cal, final int type, final int increment, final boolean modulate) {
-        final int interval =  modulate ? increment - (cal.get(type) % increment) : increment;
-        cal.add(type, interval);
     }
 
     /**
@@ -363,10 +249,6 @@ public class PatternProcessor {
 
     public RolloverFrequency getFrequency() {
         return frequency;
-    }
-
-    public long getNextFileTime() {
-        return nextFileTime;
     }
 
 }

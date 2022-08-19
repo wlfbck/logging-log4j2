@@ -75,9 +75,9 @@ public class SizeBasedTriggeringPolicy extends AbstractTriggeringPolicy {
     @Override
     public boolean isTriggeringEvent(final LogEvent event) {
         final boolean triggered = manager.getFileSize() > maxFileSize;
-        if (triggered) {
-            manager.getPatternProcessor().updateTime();
-        }
+        //TODO: There was a call here to set prevFileTime to nextFileTime of the pattern.
+        // Since nextFileTime is only related to TimeBasedTriggeringPolicy, i assume this was there
+        // to circumvent some issue from combining these two.
         return triggered;
     }
 
